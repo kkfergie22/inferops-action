@@ -1,0 +1,11 @@
+name: "InferOps CI Failure Analyzer"
+description: "Analyze CI/CD failures and suggest fixes using AI"
+
+inputs:
+  openai_api_key:
+    description: "OpenAI API Key"
+    required: true
+
+runs:
+  using: "docker"
+  image: "Dockerfile"

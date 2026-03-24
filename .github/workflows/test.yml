@@ -1,0 +1,18 @@
+# .github/workflows/test.yml
+name: Test InferOps
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Force failure
+        run: exit 1
+
+      - name: Run InferOps
+        if: failure()
+        uses: kkfergie22/inferops-action@main
+        with:
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
