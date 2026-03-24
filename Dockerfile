@@ -11,6 +11,8 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies
 RUN uv sync --locked
 
+ENV PATH="/app/.venv/bin:$PATH"
+
 # Copy source code
 COPY src/ .
 
