@@ -15,4 +15,4 @@ RUN uv sync --locked
 COPY src/ .
 
 # Run the app
-CMD ["python", "main.py"]
+CMD ["python", "/app/main.py"]
