@@ -1,52 +1,29 @@
 import os
 from github_utils import get_latest_failed_run, fetch_workflow_logs
-import openai
+import httpx
 
 
 def get_required_env(name: str):
-    """Fetch required environment variable or raise error."""
     value = os.getenv(name)
     if not value:
         raise RuntimeError(f"Missing required env var: {name}")
     return value
 
 
-def extract_errors(logs: dict[str, str]) -> dict[str, list[str]]:
+def get_workflow_run_status(repo: str, run_id: int, token: str):
     """
-    Extract lines containing 'ERROR' or 'FAIL' from workflow logs.
-    Returns a dict mapping file names to lists of error lines.
+    Fetch the workflow run status and conclusion from GitHub API.
     """
-    error_lines = {}
-    for fname, content in logs.items():
-        lines = [
-            line for line in content.splitlines() if "ERROR" in line or "FAIL" in line
-        ]
-        if lines:
-            error_lines[fname] = lines
-    return error_lines
+    url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+    headers = {"Authorization": f"token {token}"}
 
-
-def summarize_errors(errors: dict[str, list[str]]) -> str:
-    """
-    Summarize errors using OpenAI API. Returns a concise summary.
-    """
-    openai_api_key = os.getenv("INPUT_OPENAI_API_KEY")
-    if not openai_api_key:
-        return "⚠️ OpenAI API key not provided. Skipping summary."
-
-    openai.api_key = openai_api_key
-    text_to_summarize = "\n".join(
-        f"{fname}:\n" + "\n".join(lines[-10:]) for fname, lines in errors.items()
-    )
-
-    prompt = f"Summarize the following CI workflow errors in plain English:\n{text_to_summarize}"
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-    )
-    return response.choices[0].message.content.strip()
+    with httpx.Client(timeout=10.0) as client:
+        response = client.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        # status: "completed", "in_progress", "queued"
+        # conclusion: "success", "failure", "cancelled", "neutral", "skipped"
+        return data["status"], data.get("conclusion")
 
 
 def main():
@@ -54,7 +31,7 @@ def main():
 
     # Required GitHub info
     repo = get_required_env("GITHUB_REPOSITORY")
-    branch = os.getenv("GITHUB_REF_NAME", "main")
+    branch = os.getenv("GITHUB_REF_NAME", "main")  # fallback to main
     token = get_required_env("INPUT_GITHUB_TOKEN")
 
     # Step 1: Find latest failed run
@@ -69,27 +46,36 @@ def main():
         print(f"❌ Failed to fetch logs: {e}")
         logs = {}
 
-    # Step 3: Extract errors
-    errors = extract_errors(logs)
-    total_errors = sum(len(lines) for lines in errors.values())
-    print(f"⚠️ Total errors found: {total_errors}")
+    # Step 3: Detect errors in logs
+    errors_found = []
+    for fname, content in logs.items():
+        snippet = "\n".join(content.splitlines()[-20:])
+        if "error" in snippet.lower() or "failed" in snippet.lower():
+            errors_found.append(fname)
 
-    # Step 4: Summarize errors
-    summary = summarize_errors(errors) if errors else "✅ No errors found."
-    print("\n📝 Summary:\n", summary)
+    # Step 4: Check workflow run conclusion
+    try:
+        status, conclusion = get_workflow_run_status(repo, run_id, token)
+    except Exception as e:
+        print(f"❌ Failed to fetch workflow status: {e}")
+        status, conclusion = "unknown", "unknown"
 
-    # Step 5: Set GitHub Action outputs
-    github_output = os.getenv("GITHUB_OUTPUT")
-    if github_output:
-        with open(github_output, "a") as fh:
-            print(f"error_count={total_errors}", file=fh)
-            print(f"summary={summary}", file=fh)
+    # Step 5: Print summary
+    print("\n📝 Summary:")
+    print(f"Status: {status}, Conclusion: {conclusion}")
+    if conclusion != "success" or errors_found:
+        print(f"❌ Workflow failed or errors found in logs: {errors_found}")
+        # Here you could set a proper exit code to fail the step
+        os._exit(1)
     else:
-        print("⚠️ GITHUB_OUTPUT environment variable not set; cannot write outputs.")
+        print("✅ Workflow passed with no errors detected")
 
-    # Optional: fail workflow if too many errors
-    if total_errors > 10:
-        raise RuntimeError(f"❌ Workflow failed with {total_errors} errors")
+    # Step 6: Optional snippet display
+    for fname, content in logs.items():
+        print(f"\n--- {fname} ---")
+        snippet = "\n".join(content.splitlines()[-20:])
+        print(snippet)
+        print("...")
 
 
 if __name__ == "__main__":
