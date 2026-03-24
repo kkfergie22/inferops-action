@@ -47,3 +47,4 @@ def fetch_workflow_logs(repo: str, run_id: str, token: str) -> dict:
         with z.open(fname) as f:
             logs[fname] = f.read().decode(errors="ignore")
     return logs
+
