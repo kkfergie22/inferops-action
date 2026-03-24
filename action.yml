@@ -4,6 +4,9 @@ description: "Analyze CI/CD failures and suggest fixes using AI"
 inputs:
   openai_api_key:
     description: "OpenAI API Key"
+    required: false
+  github_token:
+    description: "GitHub Token"
     required: true
 
 runs:

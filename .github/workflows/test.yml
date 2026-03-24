@@ -15,4 +15,5 @@ jobs:
         if: failure()
         uses: kkfergie22/inferops-action@main
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
