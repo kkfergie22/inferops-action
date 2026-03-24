@@ -22,10 +22,15 @@ def main():
     print(f"🔍 Latest failed run_id: {run_id}")
 
     # Step 2: Fetch logs
-    logs = fetch_workflow_logs(repo, run_id, token)
+    try:
+        logs = fetch_workflow_logs(repo, run_id, token)
+    except Exception as e:
+        print(f"❌ Failed to fetch logs: {e}")
+        return
+
     print(f"✅ Fetched {len(logs)} log files")
 
-    # Step 3: Print snippet from each log
+    # Step 3: Print snippet from each log (last 20 lines)
     for fname, content in logs.items():
         print(f"\n--- {fname} ---")
         snippet = "\n".join(content.splitlines()[-20:])  # last 20 lines

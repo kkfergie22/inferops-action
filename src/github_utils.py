@@ -35,7 +35,8 @@ def fetch_workflow_logs(repo: str, run_id: str, token: str) -> dict:
         "Accept": "application/vnd.github+json",
     }
 
-    with httpx.Client(timeout=60) as client:
+    # follow_redirects=True handles GitHub 302 redirects automatically
+    with httpx.Client(timeout=60, follow_redirects=True) as client:
         response = client.get(url, headers=headers)
         response.raise_for_status()
 
