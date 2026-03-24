@@ -1,5 +1,5 @@
 import os
-from github_utils import fetch_workflow_logs
+from github_utils import get_latest_failed_run, fetch_workflow_logs
 
 
 def get_required_env(name: str):
@@ -12,17 +12,24 @@ def get_required_env(name: str):
 def main():
     print("🚀 InferOps is running")
 
+    # Required GitHub info
     repo = get_required_env("GITHUB_REPOSITORY")
-    run_id = get_required_env("GITHUB_RUN_ID")
-    token = get_required_env("INPUT_GITHUB_TOKEN")  # GitHub token input
+    branch = os.getenv("GITHUB_REF_NAME", "main")  # fallback to main branch
+    token = get_required_env("INPUT_GITHUB_TOKEN")
 
+    # Step 1: Find latest failed run
+    run_id = get_latest_failed_run(repo, token, branch)
+    print(f"🔍 Latest failed run_id: {run_id}")
+
+    # Step 2: Fetch logs
     logs = fetch_workflow_logs(repo, run_id, token)
-
     print(f"✅ Fetched {len(logs)} log files")
-    # Print first 500 chars of each log
+
+    # Step 3: Print snippet from each log
     for fname, content in logs.items():
-        print(f"--- {fname} ---")
-        print(content[:500])
+        print(f"\n--- {fname} ---")
+        snippet = "\n".join(content.splitlines()[-20:])  # last 20 lines
+        print(snippet)
         print("...")
 
 
