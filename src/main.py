@@ -79,8 +79,13 @@ def main():
     print("\n📝 Summary:\n", summary)
 
     # Step 5: Set GitHub Action outputs
-    print(f"::set-output name=error_count::{total_errors}")
-    print(f"::set-output name=summary::{summary}")
+    github_output = os.getenv("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a") as fh:
+            print(f"error_count={total_errors}", file=fh)
+            print(f"summary={summary}", file=fh)
+    else:
+        print("⚠️ GITHUB_OUTPUT environment variable not set; cannot write outputs.")
 
     # Optional: fail workflow if too many errors
     if total_errors > 10:
