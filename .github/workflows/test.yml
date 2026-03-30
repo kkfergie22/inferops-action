@@ -13,7 +13,8 @@ jobs:
 
       - name: Run InferOps
         if: failure()
-        uses: kkfergie22/inferops-action@main
+        uses: ./
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          llm_provider: "openai"

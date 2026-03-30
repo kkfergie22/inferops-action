@@ -1,82 +1,78 @@
 import os
-from github_utils import get_latest_failed_run, fetch_workflow_logs
-import httpx
+import sys
+from github_utils import fetch_workflow_logs, extract_error_lines
+from analyzer import analyze_failure
+from notifier import post_github_summary, post_to_discord, post_to_slack
 
+def get_env_or_default(name: str, default: str = "") -> str:
+    return os.getenv(name, default)
 
-def get_required_env(name: str):
+def get_required_env(name: str) -> str:
     value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing required env var: {name}")
+    if value is None:
+        print(f"❌ Missing required env var: {name}")
+        sys.exit(1)
     return value
 
-
-def get_workflow_run_status(repo: str, run_id: int, token: str):
-    """
-    Fetch the workflow run status and conclusion from GitHub API.
-    """
-    url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
-    headers = {"Authorization": f"token {token}"}
-
-    with httpx.Client(timeout=10.0) as client:
-        response = client.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        # status: "completed", "in_progress", "queued"
-        # conclusion: "success", "failure", "cancelled", "neutral", "skipped"
-        return data["status"], data.get("conclusion")
-
-
 def main():
-    print("🚀 InferOps is running")
+    print("🚀 InferOps is analyzing the failure...")
 
-    # Required GitHub info
+    # Required variables
     repo = get_required_env("GITHUB_REPOSITORY")
-    branch = os.getenv("GITHUB_REF_NAME", "main")  # fallback to main
     token = get_required_env("INPUT_GITHUB_TOKEN")
+    run_id = get_required_env("GITHUB_RUN_ID")
+    
+    # LLM Config
+    provider = get_env_or_default("INPUT_LLM_PROVIDER", "openai")
+    model = get_env_or_default("INPUT_LLM_MODEL", "")
+    
+    api_key = get_env_or_default(f"INPUT_{provider.upper()}_API_KEY")
+    if not api_key:
+        print(f"❌ Missing API key for provider {provider}. Please set {provider.upper()}_API_KEY.")
+        sys.exit(1)
+        
+    # Notification Config
+    discord_url = get_env_or_default("INPUT_DISCORD_WEBHOOK_URL")
+    slack_url = get_env_or_default("INPUT_SLACK_WEBHOOK_URL")
+    
+    # Options
+    suggest_patch = get_env_or_default("INPUT_SUGGEST_PATCH", "false").lower() == "true"
+    max_log_lines = int(get_env_or_default("INPUT_MAX_LOG_LINES", "200"))
 
-    # Step 1: Find latest failed run
-    run_id = get_latest_failed_run(repo, token, branch)
-    print(f"🔍 Latest failed run_id: {run_id}")
-
-    # Step 2: Fetch logs
+    # Step 1: Fetch logs
+    print(f"🔍 Fetching logs for run {run_id} in {repo}...")
     try:
         logs = fetch_workflow_logs(repo, run_id, token)
-        print(f"✅ Fetched {len(logs)} log files")
+        print(f"✅ Fetched {len(logs)} log files.")
     except Exception as e:
         print(f"❌ Failed to fetch logs: {e}")
-        logs = {}
+        # If we can't fetch logs, there's nothing to analyze. We shouldn't fail the build though, 
+        # since it's already failed. Just exit.
+        sys.exit(0)
 
-    # Step 3: Detect errors in logs
-    errors_found = []
-    for fname, content in logs.items():
-        snippet = "\n".join(content.splitlines()[-20:])
-        if "error" in snippet.lower() or "failed" in snippet.lower():
-            errors_found.append(fname)
-
-    # Step 4: Check workflow run conclusion
+    # Step 2: Extract relevant error lines
+    error_context = extract_error_lines(logs, max_lines=max_log_lines)
+    
+    # Step 3: Analyze with LLM
+    print(f"🧠 Analyzing failure with {provider.capitalize()}...")
     try:
-        status, conclusion = get_workflow_run_status(repo, run_id, token)
+        analysis = analyze_failure(error_context, provider, api_key, model, suggest_patch)
+        print("✅ Analysis complete.")
     except Exception as e:
-        print(f"❌ Failed to fetch workflow status: {e}")
-        status, conclusion = "unknown", "unknown"
+        print(f"❌ LLM Analysis failed: {e}")
+        sys.exit(0)
 
-    # Step 5: Print summary
-    print("\n📝 Summary:")
-    print(f"Status: {status}, Conclusion: {conclusion}")
-    if conclusion != "success" or errors_found:
-        print(f"❌ Workflow failed or errors found in logs: {errors_found}")
-        # Here you could set a proper exit code to fail the step
-        os._exit(1)
-    else:
-        print("✅ Workflow passed with no errors detected")
+    # Step 4: Dispatch Notifications
+    print("💬 Dispatching notifications...")
+    post_github_summary(analysis, repo, run_id)
+    
+    if discord_url:
+        post_to_discord(discord_url, analysis, repo, run_id)
+    
+    if slack_url:
+        post_to_slack(slack_url, analysis, repo, run_id)
 
-    # Step 6: Optional snippet display
-    for fname, content in logs.items():
-        print(f"\n--- {fname} ---")
-        snippet = "\n".join(content.splitlines()[-20:])
-        print(snippet)
-        print("...")
-
+    print("🏁 InferOps finished successfully.")
 
 if __name__ == "__main__":
     main()

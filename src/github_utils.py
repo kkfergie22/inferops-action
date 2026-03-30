@@ -48,3 +48,39 @@ def fetch_workflow_logs(repo: str, run_id: str, token: str) -> dict:
             logs[fname] = f.read().decode(errors="ignore")
     return logs
 
+
+def extract_error_lines(logs: dict, max_lines: int = 200) -> str:
+    """
+    Extract the most relevant error lines from all log files.
+    """
+    error_keywords = ["error", "failed", "exception", "traceback", "fatal", "panic"]
+    extracted = []
+    
+    for fname, content in logs.items():
+        lines = content.splitlines()
+        file_errors = []
+        for i, line in enumerate(lines):
+            if any(keyword in line.lower() for keyword in error_keywords):
+                # Grab a few lines before and after for context
+                start = max(0, i - 2)
+                end = min(len(lines), i + 3)
+                context = "\n".join(lines[start:end])
+                file_errors.append(context)
+        
+        if file_errors:
+            extracted.append(f"--- {fname} ---")
+            extracted.extend(file_errors)
+            
+    # If no obvious errors, fallback to the last 50 lines of each file
+    if not extracted:
+        for fname, content in logs.items():
+            extracted.append(f"--- {fname} (last lines) ---")
+            extracted.extend(content.splitlines()[-50:])
+            
+    # Join and truncate
+    full_text = "\n".join(extracted)
+    lines = full_text.splitlines()
+    if len(lines) > max_lines:
+        half = max_lines // 2
+        return "\n".join(lines[:half] + ["... [TRUNCATED] ..."] + lines[-half:])
+    return full_text
